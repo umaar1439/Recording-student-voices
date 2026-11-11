@@ -124,12 +124,14 @@ class ReviewWorkflowTest extends TestCase
         // The student who submitted it never receives the task again.
         Livewire::actingAs($first)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_CORRECT)
             ->assertDontSee($task->code);
 
         // Another student can pick it up from the shared pool.
         Livewire::actingAs($second)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_CORRECT)
             ->assertSee($task->code)
             ->set('audio', UploadedFile::fake()->create('second.wav', 100, 'audio/wav'))
@@ -164,6 +166,7 @@ class ReviewWorkflowTest extends TestCase
 
         Livewire::actingAs($other)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_WRONG)
             ->assertDontSee($task->code);
     }

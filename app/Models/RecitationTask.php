@@ -407,6 +407,20 @@ class RecitationTask extends Model
         ])->save();
     }
 
+    /**
+     * Return every task to the shared pool for a fresh recitation round.
+     */
+    public static function resetPool(): void
+    {
+        static::query()->update([
+            'status' => self::STATUS_AVAILABLE,
+            'assigned_to' => null,
+            'assigned_at' => null,
+            'approved_at' => null,
+            'updated_at' => now(),
+        ]);
+    }
+
     public function isAvailable(): bool
     {
         return $this->status === self::STATUS_AVAILABLE;

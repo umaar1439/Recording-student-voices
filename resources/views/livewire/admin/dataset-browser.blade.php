@@ -190,4 +190,53 @@
 
         <div>{{ $this->recordings->links() }}</div>
     @endif
+
+    <section class="card border border-rose-200 bg-rose-50/40 p-5 sm:p-6">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="max-w-2xl">
+                <h2 class="flex items-center gap-2 text-base font-black text-rose-900">
+                    <x-icon name="alert" class="h-4 w-4" />
+                    تصفير المنصة وإعادة التسميع من جديد
+                </h2>
+                <p class="mt-1 text-xs font-semibold leading-6 text-rose-800/80">
+                    صدّر مجموعة البيانات أولًا. بعد التصفير سيتم حذف جميع التسجيلات وملفاتها الصوتية نهائيًا،
+                    وإعادة كل مهام الآيات إلى حالة «متاحة» ليبدأ الطلاب دورة تسميع جديدة.
+                </p>
+                <p class="mt-2 inline-flex rounded-lg bg-white/70 px-2.5 py-1 text-[11px] font-black text-rose-700">
+                    لا يمكن التراجع عن هذه العملية.
+                </p>
+            </div>
+
+            <button type="button" wire:click="openResetModal" class="btn btn-danger btn-sm">
+                <x-icon name="trash" class="h-4 w-4" />
+                تصفير المنصة
+            </button>
+        </div>
+    </section>
+
+    <x-modal :show="$showResetModal" title="تصفير المنصة وإعادة التسميع" close="cancelReset" max-width="max-w-md">
+        <div class="space-y-4">
+            <p class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold leading-6 text-rose-800">
+                سيتم حذف <span class="font-black tabular">{{ number_format($this->totalRecordings) }}</span> تسجيلًا
+                (بما فيها التسجيلات المعلّقة والمرفوضة) مع ملفاتها الصوتية، وإعادة كل المهام إلى «متاحة».
+                تأكد من تنزيل حزمة البيانات قبل المتابعة.
+            </p>
+
+            <div>
+                <label for="reset-confirmation" class="label">اكتب كلمة «تصفير» للتأكيد</label>
+                <input id="reset-confirmation" type="text" wire:model="resetConfirmation"
+                       class="input" autocomplete="off" placeholder="تصفير">
+                @error('resetConfirmation') <p class="mt-1.5 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
+            </div>
+        </div>
+
+        <x-slot:footer>
+            <button type="button" wire:click="cancelReset" class="btn btn-secondary btn-sm">إلغاء</button>
+            <button type="button" wire:click="resetPlatform" wire:loading.attr="disabled"
+                    class="btn btn-danger btn-sm">
+                <span wire:loading.remove wire:target="resetPlatform">تأكيد التصفير</span>
+                <span wire:loading wire:target="resetPlatform">جارٍ التصفير…</span>
+            </button>
+        </x-slot:footer>
+    </x-modal>
 </div>

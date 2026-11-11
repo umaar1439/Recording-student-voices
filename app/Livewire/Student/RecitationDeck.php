@@ -49,12 +49,15 @@ class RecitationDeck extends Component
     {
         abort_unless(auth()->user()?->isStudent(), 403, 'هذه الصفحة مخصصة للطلاب فقط.');
 
-        $this->teacherId = auth()->user()?->teacher_id;
+        $user = auth()->user();
+        $this->teacherId = $user?->teacher_id;
 
         $surah = request()->integer('surah');
 
         if ($surah >= 1 && $surah <= 114) {
             $this->surahFilter = (string) $surah;
+        } elseif ($user instanceof User && $this->hasRemainingFatihahTasks($user)) {
+            $this->surahFilter = (string) RecitationTask::REPEATABLE_SURAH_NUMBER;
         }
 
         $this->reserveNextTask();
@@ -273,6 +276,14 @@ class RecitationDeck extends Component
         $this->reset('audio', 'durationMs');
         $this->skipped = array_values(array_diff($this->skipped, [$key]));
         unset($this->tasks);
+
+        if (
+            $this->surahFilter === (string) RecitationTask::REPEATABLE_SURAH_NUMBER
+            && ! $this->hasRemainingFatihahTasks($user)
+        ) {
+            $this->surahFilter = 'all';
+        }
+
         $this->reserveNextTask();
 
         $this->dispatch('recording-saved');
@@ -467,6 +478,22 @@ class RecitationDeck extends Component
             })
             ->join('ayahs', 'ayahs.id', '=', 'recitation_tasks.ayah_id')
             ->select('recitation_tasks.*');
+    }
+
+    /**
+     * Whether the current student still has an available Al-Fatihah task under
+     * the active recitation type. Al-Fatihah is the mandatory first stop; once
+     * it is exhausted the deck continues with the shared Quran pool.
+     */
+    protected function hasRemainingFatihahTasks(User $user): bool
+    {
+        return RecitationTask::query()
+            ->available()
+            ->reservableBy($user)
+            ->withoutSubmissionBy($user)
+            ->when($this->typeFilter !== 'all', fn (Builder $query) => $query->where('type', $this->typeFilter))
+            ->whereHas('ayah', fn (Builder $ayah) => $ayah->where('surah_number', RecitationTask::REPEATABLE_SURAH_NUMBER))
+            ->exists();
     }
 
     /**

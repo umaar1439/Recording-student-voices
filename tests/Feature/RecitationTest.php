@@ -57,6 +57,30 @@ class RecitationTest extends TestCase
     }
 
     /**
+     * Create a pending recording for every Al-Fatihah task, optionally leaving
+     * one task unrecorded so a test can submit it.
+     */
+    protected function completeFatihahFor(User $student, ?RecitationTask $except = null): void
+    {
+        $tasks = RecitationTask::query()
+            ->whereHas('ayah', fn ($ayah) => $ayah->where('surah_number', RecitationTask::REPEATABLE_SURAH_NUMBER))
+            ->orderBy('id')
+            ->get();
+
+        foreach ($tasks as $task) {
+            if ($except !== null && $task->is($except)) {
+                continue;
+            }
+
+            Recording::factory()
+                ->for($student)
+                ->for($task->ayah)
+                ->ofType($task->type)
+                ->create();
+        }
+    }
+
+    /**
      * Build a minimal valid 16 kHz mono PCM WAV payload.
      */
     protected function wavContent(int $frames = 320): string
@@ -376,6 +400,67 @@ class RecitationTest extends TestCase
             ->assertSee('103001x');
     }
 
+    public function test_new_student_starts_with_al_fatihah_selected(): void
+    {
+        $student = User::factory()->student()->create();
+
+        Livewire::actingAs($student)
+            ->test(RecitationDeck::class)
+            ->assertSet('surahFilter', (string) RecitationTask::REPEATABLE_SURAH_NUMBER)
+            ->assertSee('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ');
+    }
+
+    public function test_student_who_finished_al_fatihah_starts_with_the_shared_quran_pool(): void
+    {
+        $student = User::factory()->student()->create();
+        $task = $this->nonRepeatableTask();
+
+        $this->completeFatihahFor($student);
+
+        Livewire::actingAs($student)
+            ->test(RecitationDeck::class)
+            ->assertSet('surahFilter', 'all')
+            ->assertSee($task->code);
+    }
+
+    public function test_deck_moves_to_the_shared_pool_after_the_last_al_fatihah_task_is_submitted(): void
+    {
+        $student = User::factory()->student()->create();
+        $last = RecitationTask::query()
+            ->whereHas('ayah', fn ($ayah) => $ayah->where('surah_number', RecitationTask::REPEATABLE_SURAH_NUMBER))
+            ->orderByDesc('id')
+            ->firstOrFail();
+        $next = $this->nonRepeatableTask();
+
+        $this->completeFatihahFor($student, $last);
+
+        Livewire::actingAs($student)
+            ->test(RecitationDeck::class)
+            ->assertSet('surahFilter', (string) RecitationTask::REPEATABLE_SURAH_NUMBER)
+            ->assertSee($last->code)
+            ->set('audio', UploadedFile::fake()->create('last-fatihah.wav', 100, 'audio/wav'))
+            ->call('submit', $last->code)
+            ->assertHasNoErrors()
+            ->assertSet('surahFilter', 'all')
+            ->assertSee($next->code);
+    }
+
+    public function test_deck_shows_the_empty_state_once_all_other_tasks_are_completed(): void
+    {
+        $student = User::factory()->student()->create();
+
+        $this->completeFatihahFor($student);
+
+        RecitationTask::query()
+            ->whereHas('ayah', fn ($ayah) => $ayah->where('surah_number', '!=', RecitationTask::REPEATABLE_SURAH_NUMBER))
+            ->update(['status' => RecitationTask::STATUS_APPROVED]);
+
+        Livewire::actingAs($student)
+            ->test(RecitationDeck::class)
+            ->assertSet('surahFilter', 'all')
+            ->assertSee('أتممت كل المهام المتاحة');
+    }
+
     public function test_a_task_is_reserved_for_one_student_and_hidden_from_others(): void
     {
         $first = User::factory()->student()->create();
@@ -384,6 +469,7 @@ class RecitationTest extends TestCase
 
         Livewire::actingAs($first)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_CORRECT)
             ->assertSee($task->code);
 
@@ -391,6 +477,7 @@ class RecitationTest extends TestCase
 
         Livewire::actingAs($second)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_CORRECT)
             ->assertDontSee($task->code);
     }
@@ -401,7 +488,9 @@ class RecitationTest extends TestCase
         $second = User::factory()->student()->create();
         $task = $this->nonRepeatableTask();
 
-        Livewire::actingAs($first)->test(RecitationDeck::class);
+        Livewire::actingAs($first)
+            ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all');
 
         $this->assertSame($first->id, $task->fresh()->assigned_to);
 
@@ -409,6 +498,7 @@ class RecitationTest extends TestCase
 
         Livewire::actingAs($second)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_CORRECT)
             ->assertSee($task->code);
 
@@ -427,6 +517,7 @@ class RecitationTest extends TestCase
 
         Livewire::actingAs($student)
             ->test(RecitationDeck::class)
+            ->set('surahFilter', 'all')
             ->set('typeFilter', RecitationTask::TYPE_CORRECT)
             ->call('skip', $tasks[0]->code)
             ->assertSet('skipped', [$tasks[0]->code]);

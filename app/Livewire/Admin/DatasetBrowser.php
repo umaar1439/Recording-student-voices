@@ -2,12 +2,15 @@
 
 namespace App\Livewire\Admin;
 
+use App\Models\RecitationTask;
 use App\Models\Recording;
 use App\Support\Quran;
 use Illuminate\Contracts\View\View;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -25,6 +28,10 @@ class DatasetBrowser extends Component
     public string $from = '';
 
     public string $to = '';
+
+    public bool $showResetModal = false;
+
+    public string $resetConfirmation = '';
 
     public function mount(): void
     {
@@ -45,6 +52,63 @@ class DatasetBrowser extends Component
         $this->surah = 'all';
         $this->resetPage();
         $this->resetValidation();
+    }
+
+    public function openResetModal(): void
+    {
+        abort_unless(auth()->user()?->isAdmin(), 403);
+
+        $this->resetValidation();
+        $this->resetConfirmation = '';
+        $this->showResetModal = true;
+    }
+
+    public function cancelReset(): void
+    {
+        $this->showResetModal = false;
+        $this->reset('resetConfirmation');
+        $this->resetValidation();
+    }
+
+    /**
+     * Delete every recording and its audio, then return the whole task pool to
+     * "available" so students can start a new recitation round. This is
+     * intentionally irreversible, hence the typed confirmation.
+     */
+    public function resetPlatform(): void
+    {
+        abort_unless(auth()->user()?->isAdmin(), 403);
+
+        $this->validate([
+            'resetConfirmation' => ['required', 'string', Rule::in(['تصفير'])],
+        ], [
+            'resetConfirmation.required' => 'اكتب كلمة «تصفير» لتأكيد إعادة ضبط المنصة.',
+            'resetConfirmation.in' => 'كلمة التأكيد غير صحيحة؛ اكتب «تصفير» بالضبط.',
+        ], [
+            'resetConfirmation' => 'كلمة التأكيد',
+        ]);
+
+        $deleted = DB::transaction(function (): int {
+            $deleted = Recording::query()->count();
+
+            Recording::query()->delete();
+            RecitationTask::resetPool();
+
+            return $deleted;
+        });
+
+        Storage::disk('local')->deleteDirectory('recordings');
+
+        $this->showResetModal = false;
+        $this->reset('resetConfirmation');
+        $this->resetValidation();
+        unset($this->recordings, $this->stats, $this->typeBreakdown, $this->totalRecordings);
+
+        $this->dispatch(
+            'notify',
+            message: 'تم تصفير المنصة وحذف '.number_format($deleted).' تسجيلًا، وأصبحت كل المهام متاحة من جديد.',
+            type: 'success',
+        );
     }
 
     /**
@@ -116,6 +180,12 @@ class DatasetBrowser extends Component
             ->select('type', DB::raw('count(*) as total'))
             ->groupBy('type')
             ->get();
+    }
+
+    #[Computed]
+    public function totalRecordings(): int
+    {
+        return Recording::query()->count();
     }
 
     public function render(): View
