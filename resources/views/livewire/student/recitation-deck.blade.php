@@ -97,7 +97,7 @@
 
     @if ($task === null)
         <x-empty-state icon="check-circle" title="أتممت كل المهام المتاحة"
-                       description="لا توجد آيات متبقّية في الفلتر الحالي. جرّب سورة أخرى أو أعد ضبط الفلاتر لبدء جولة جديدة.">
+                       description="لا توجد آيات متبقّية في الفلتر الحالي. جرّب سورة أخرى أو أعد ضبط الفلاتر، وإذا اكتملت جميع مهام المصحف فقد انتهت دورة التسميع حتى تصفير المنصة من الإدارة.">
             <x-slot:actions>
                 <button type="button" wire:click="setTypeFilter('all')" class="btn btn-primary btn-sm">إعادة ضبط النوع</button>
                 <a href="{{ route('student.history') }}" class="btn btn-secondary btn-sm">عرض سجلّ تلاواتي</a>

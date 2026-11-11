@@ -79,6 +79,8 @@ class DatasetBrowser extends Component
     {
         abort_unless(auth()->user()?->isAdmin(), 403);
 
+        $this->resetConfirmation = trim($this->resetConfirmation);
+
         $this->validate([
             'resetConfirmation' => ['required', 'string', Rule::in(['تصفير'])],
         ], [
@@ -106,7 +108,9 @@ class DatasetBrowser extends Component
 
         $this->dispatch(
             'notify',
-            message: 'تم تصفير المنصة وحذف '.number_format($deleted).' تسجيلًا، وأصبحت كل المهام متاحة من جديد.',
+            message: $deleted > 0
+                ? 'تم تصفير المنصة وحذف '.number_format($deleted).' تسجيلًا، وأصبحت كل المهام متاحة من جديد.'
+                : 'تم تصفير المنصة وأصبحت كل المهام متاحة من جديد.',
             type: 'success',
         );
     }
@@ -182,6 +186,9 @@ class DatasetBrowser extends Component
             ->get();
     }
 
+    /**
+     * Number of recordings that the reset action will delete.
+     */
     #[Computed]
     public function totalRecordings(): int
     {

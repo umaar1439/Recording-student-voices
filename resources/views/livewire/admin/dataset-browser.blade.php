@@ -222,6 +222,12 @@
                 تأكد من تنزيل حزمة البيانات قبل المتابعة.
             </p>
 
+            @if (count($query) > 0)
+                <p class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-6 text-amber-900">
+                    تنبيه: التصدير الحالي مقيّد بالفلاتر المطبّقة، لكن التصفير يحذف جميع التسجيلات بلا استثناء.
+                </p>
+            @endif
+
             <div>
                 <label for="reset-confirmation" class="label">اكتب كلمة «تصفير» للتأكيد</label>
                 <input id="reset-confirmation" type="text" wire:model="resetConfirmation"
