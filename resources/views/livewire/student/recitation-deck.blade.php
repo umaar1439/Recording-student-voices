@@ -152,50 +152,6 @@
                     </div>
 
                     <div x-show="supported" x-cloak class="flex flex-col items-center gap-4">
-                        <div x-show="permissionHelp" x-cloak
-                             class="w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 shadow-sm">
-                            <div class="flex items-start gap-2">
-                                <x-icon name="alert" class="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-                                <div class="min-w-0 space-y-1.5">
-                                    <p class="text-sm font-black text-amber-900" x-text="permissionTitle"></p>
-                                    <p class="text-[11px] font-semibold leading-6 text-amber-900/80" x-text="permissionIntro"></p>
-                                </div>
-                            </div>
-
-                            <template x-if="!embedded">
-                                <ul class="mt-3 space-y-1.5 text-[11px] font-semibold leading-6 text-amber-900">
-                                    <template x-for="(step, index) in permissionSteps" :key="index">
-                                        <li class="flex gap-2">
-                                            <span class="shrink-0 text-gold-600">◆</span>
-                                            <span x-text="step"></span>
-                                        </li>
-                                    </template>
-                                </ul>
-                            </template>
-
-                            <p class="mt-3 text-[11px] font-semibold leading-6 text-amber-900/70">
-                                إن كنت تفتح الموقع من داخل تطبيق (فيسبوك أو إنستغرام أو تيليجرام) فافتحه في
-                                Chrome أو Safari، لأن هذه التطبيقات غالبًا تمنع الميكروفون.
-                            </p>
-
-                            <div class="mt-3 flex flex-wrap gap-2">
-                                <button type="button" @click="retryPermission()" :disabled="isBusy"
-                                        class="btn btn-primary btn-sm">
-                                    <x-icon name="mic" class="h-4 w-4" />
-                                    إعادة المحاولة ومنح الإذن
-                                </button>
-
-                                <button type="button" x-show="embedded" @click="openInNewWindow()"
-                                        class="btn btn-secondary btn-sm">
-                                    <x-icon name="arrow-right" class="h-4 w-4" />
-                                    فتح في نافذة جديدة
-                                </button>
-
-                                <button type="button" @click="reloadPage()" class="btn btn-ghost btn-sm">
-                                    <x-icon name="refresh" class="h-4 w-4" />
-                                    تحديث الصفحة
-                                </button>
-                            </div>
                         </div>
 
                         <div x-show="state === 'idle'" class="flex flex-col items-center gap-3">
@@ -294,6 +250,91 @@
                             </span>
                         </div>
                     </div>
+
+                    {{-- نافذة الأذونات: تُنقل إلى <body> حتى لا يقصّها overflow البطاقة. --}}
+                    <template x-teleport="body">
+                        <div x-show="permissionModal" x-cloak
+                             x-transition.opacity.duration.200ms
+                             class="fixed inset-0 z-[90] flex items-end justify-center overflow-y-auto bg-slate-950/60 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+                             role="dialog" aria-modal="true" aria-labelledby="permission-modal-title"
+                             @keydown.escape.window="closePermissionModal()">
+                            <div x-show="permissionModal"
+                                 x-transition:enter="transition ease-out duration-200"
+                                 x-transition:enter-start="translate-y-4 opacity-0 sm:translate-y-0 sm:scale-95"
+                                 x-transition:enter-end="translate-y-0 opacity-100 sm:scale-100"
+                                 x-transition:leave="transition ease-in duration-150"
+                                 x-transition:leave-start="translate-y-0 opacity-100 sm:scale-100"
+                                 x-transition:leave-end="translate-y-4 opacity-0 sm:translate-y-0 sm:scale-95"
+                                 @click.outside="closePermissionModal()"
+                                 class="relative w-full max-w-lg overflow-hidden rounded-3xl border border-sand-200 bg-white shadow-2xl shadow-slate-950/30">
+
+                                <div class="relative overflow-hidden bg-mihrab-900 px-5 py-5 text-white">
+                                    <div class="pattern-grid pointer-events-none absolute inset-0 opacity-40"></div>
+
+                                    <div class="relative flex items-start gap-3">
+                                        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gold-400/15 text-gold-400 ring-1 ring-gold-400/30">
+                                            <x-icon name="mic" class="h-5 w-5" />
+                                        </span>
+
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-[11px] font-bold tracking-wide text-gold-400">إذن الميكروفون</p>
+                                            <h2 id="permission-modal-title" class="mt-0.5 text-base font-black leading-6"
+                                                x-text="permissionTitle"></h2>
+                                            <p class="mt-1 text-[11px] font-semibold text-white/65" x-text="deviceLabel"></p>
+                                        </div>
+
+                                        <button type="button" @click="closePermissionModal()"
+                                                class="rounded-xl p-1.5 text-white/60 transition hover:bg-white/10 hover:text-white"
+                                                aria-label="إغلاق النافذة">
+                                            <x-icon name="x" class="h-5 w-5" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="max-h-[58vh] space-y-4 overflow-y-auto px-5 py-5">
+                                    <p class="text-xs font-semibold leading-6 text-slate-600" x-text="permissionIntro"></p>
+
+                                    <div x-show="embedded || inApp"
+                                         class="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[11px] font-semibold leading-6 text-amber-900">
+                                        <x-icon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
+                                        <p x-text="containerMessage"></p>
+                                    </div>
+
+                                    <ol class="space-y-2.5">
+                                        <template x-for="(step, index) in permissionSteps" :key="index">
+                                            <li class="flex items-start gap-3">
+                                                <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mihrab-50 text-[10px] font-black text-mihrab-800 ring-1 ring-mihrab-200 tabular"
+                                                      x-text="index + 1"></span>
+                                                <span class="text-[11px] font-semibold leading-6 text-slate-700" x-text="step"></span>
+                                            </li>
+                                        </template>
+                                    </ol>
+
+                                    <p class="flex items-start gap-2 rounded-2xl bg-sand-50 px-3.5 py-3 text-[11px] font-semibold leading-6 text-slate-500">
+                                        <x-icon name="sparkles" class="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
+                                        <span>بعد السماح بالميكروفون ستُغلق هذه النافذة ويبدأ التسجيل تلقائيًا دون تحديث الصفحة.</span>
+                                    </p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-4">
+                                    <button type="button" id="permission-modal-retry" @click="retryPermission()"
+                                            :disabled="isBusy" class="btn btn-primary btn-sm flex-1">
+                                        <x-icon name="refresh" class="h-4 w-4" />
+                                        إعادة المحاولة
+                                    </button>
+
+                                    <button type="button" x-show="embedded || inApp" @click="openExternalBrowser()"
+                                            class="btn btn-secondary btn-sm">
+                                        <x-icon name="arrow-right" class="h-4 w-4" />
+                                        فتح في متصفح خارجي
+                                    </button>
+
+                                    <button type="button" @click="reloadPage()" class="btn btn-ghost btn-sm">
+                                        <x-icon name="refresh" class="h-4 w-4" />
+                                        تحديث الصفحة
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </article>
 

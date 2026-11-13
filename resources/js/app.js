@@ -180,14 +180,23 @@ const registerComponents = () => {
         mediaRecorder: null,
         stream: null,
         permission: 'unknown',
-        permissionHelp: false,
+        permissionModal: false,
         embedded: false,
+        inApp: null,
         browser: 'other',
+        resumeWhenGranted: false,
+        onVisibilityChange: null,
 
         async init() {
             this.supported = typeof window.MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
             this.embedded = window.self !== window.top;
+            this.inApp = this.detectInApp();
             this.browser = this.detectBrowser();
+
+            // Keep the page behind the permissions modal from scrolling.
+            this.$watch('permissionModal', (open) => {
+                document.body.classList.toggle('overflow-hidden', open);
+            });
 
             if (this.supported) {
                 await this.watchPermission();
@@ -243,6 +252,7 @@ const registerComponents = () => {
 
         async start() {
             this.error = null;
+            this.permissionModal = false;
 
             if (!window.isSecureContext) {
                 this.error = 'تسجيل الصوت يتطلب اتصالًا آمنًا (HTTPS) أو تشغيل الموقع على localhost.';
@@ -263,8 +273,11 @@ const registerComponents = () => {
             } catch (error) {
                 this.state = 'idle';
                 this.permission = await this.queryPermissionState();
-                this.permissionHelp = this.isPermissionError(error);
                 this.error = this.permissionMessage(error);
+
+                if (this.isPermissionError(error)) {
+                    this.openPermissionModal();
+                }
 
                 return;
             }
@@ -631,88 +644,193 @@ const registerComponents = () => {
                 return 'الميكروفون ممنوع داخل الإطار المضمّن';
             }
 
+            if (this.inApp) {
+                return 'الميكروفون ممنوع داخل التطبيق';
+            }
+
             return this.permission === 'denied'
                 ? 'الميكروفون محظور في هذا المتصفح'
                 : 'يجب السماح بالوصول إلى الميكروفون';
         },
 
         get permissionIntro() {
-            if (this.embedded) {
-                return 'الموقع مفتوح داخل إطار مضمّن، والمتصفح يمنع الوصول إلى الميكروفون من الإطارات. افتح الموقع في نافذة مستقلة ثم أعد المحاولة.';
+            if (this.inApp || this.embedded) {
+                return 'لا يستطيع الموقع طلب إذن الميكروفون من داخل هذه النافذة، لذلك لن تظهر رسالة الإذن. افتح الموقع في المتصفح مباشرة ثم اسمح بالوصول.';
             }
 
             if (this.permission === 'denied') {
-                return 'حظرتَ إذن الميكروفون سابقًا، ولا يستطيع الموقع إعادة فتح رسالة الإذن بنفسه. اسمح بالوصول من إعدادات المتصفح كما في الخطوات التالية ثم اضغط «إعادة المحاولة».';
+                return 'حظرتَ إذن الميكروفون لهذا الموقع، ولا يستطيع الموقع إعادة فتح رسالة الإذن بنفسه. نفّذ الخطوات التالية ثم اضغط «إعادة المحاولة».';
             }
 
-            return 'اسمح بالوصول إلى الميكروفون عندما يطلب المتصفح ذلك، أو من إعدادات الموقع، ثم اضغط «إعادة المحاولة».';
+            return 'لم يُمنح إذن الميكروفون بعد. اسمح بالوصول من رسالة المتصفح أو من إعدادات الموقع، وسنبدأ التسجيل تلقائيًا.';
+        },
+
+        get containerMessage() {
+            if (this.inApp) {
+                return `أنت تفتح الموقع من داخل ${this.inAppLabel}، وهذه التطبيقات تمنع الميكروفون غالبًا. اضغط «فتح في متصفح خارجي» ثم اسمح بالميكروفون من هناك.`;
+            }
+
+            if (this.embedded) {
+                return 'الموقع مفتوح داخل إطار مضمّن، والمتصفح يمنع الوصول إلى الميكروفون من الإطارات. اضغط «فتح في متصفح خارجي» ثم حاول مجددًا.';
+            }
+
+            return '';
+        },
+
+        get inAppLabel() {
+            return {
+                telegram: 'تليجرام',
+                facebook: 'فيسبوك',
+                instagram: 'إنستغرام',
+                whatsapp: 'واتساب',
+                tiktok: 'تيك توك',
+                line: 'لاين',
+            }[this.inApp] ?? 'تطبيق';
+        },
+
+        get deviceLabel() {
+            return {
+                ios: 'سفاري أو كروم على الآيفون والآيباد',
+                android: 'كروم على أندرويد',
+                chrome: 'كروم على الكمبيوتر',
+                edge: 'إيدج على الكمبيوتر',
+                firefox: 'فايرفوكس على الكمبيوتر',
+                safari: 'سفاري على الكمبيوتر',
+                other: 'متصفحك',
+            }[this.browser] ?? 'متصفحك';
         },
 
         get permissionSteps() {
             const steps = {
+                ios: [
+                    'افتح تطبيق «الإعدادات» في الآيفون، ثم انزل واختر Safari (أو Chrome).',
+                    'اضغط «الميكروفون» ثم اختر «السماح».',
+                    'أو من داخل سفاري: اضغط «aA» في شريط العنوان ← «إعدادات الموقع» ← «الميكروفون» ← «السماح».',
+                    'ارجع إلى هذه الصفحة واضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
+                ],
+                android: [
+                    'اضغط قائمة المتصفح (⋮) أعلى الشاشة.',
+                    'اختر «الإعدادات» ← «إعدادات المواقع» ← «الميكروفون».',
+                    'ابحث عن عنوان هذا الموقع واختر له «السماح».',
+                    'ارجع إلى الصفحة واضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
+                ],
                 chrome: [
-                    'اضغط أيقونة القفل (أو «ضبط الأذونات») بجوار عنوان الموقع.',
-                    'اختر «إعدادات الموقع» ثم «الميكروفون».',
-                    'غيّر الإذن إلى «السماح» ثم اضغط «إعادة المحاولة».',
+                    'اضغط أيقونة القفل (أو «ضبط الأذونات») على يسار عنوان الموقع.',
+                    'اختر «إعدادات الموقع» ← «الميكروفون».',
+                    'غيّر الإذن إلى «السماح» ثم أغلق النافذة.',
+                    'اضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا إن كان الإذن مفعّلًا.',
                 ],
                 edge: [
                     'اضغط أيقونة القفل بجوار عنوان الموقع.',
-                    'اختر «الأذونات الخاصة بهذا الموقع» ثم «الميكروفون».',
-                    'غيّر الإذن إلى «السماح» ثم اضغط «إعادة المحاولة».',
+                    'اختر «الأذونات الخاصة بهذا الموقع» ← «الميكروفون».',
+                    'اختر «السماح» ثم أغلق النافذة.',
+                    'اضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
                 ],
                 firefox: [
                     'اضغط أيقونة القفل بجوار عنوان الموقع.',
-                    'اختر «مسح الإذن» أو «إعدادات الأذونات» لميكروفون هذا الموقع.',
-                    'اسمح بالميكروفون ثم اضغط «إعادة المحاولة».',
+                    'اختر «مسح الإذن» ثم أعد تحميل الصفحة لطلب الإذن من جديد، أو افتح «الإعدادات» ← «الخصوصية والأمان» ← «الأذونات» ← «الميكروفون» واسمح بهذا الموقع.',
+                    'ارجع إلى الصفحة واسمح بالميكروفون من رسالة المتصفح.',
+                    'اضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
                 ],
                 safari: [
-                    'من شريط القوائم: Safari ← الإعدادات ← المواقع.',
-                    'اختر «الميكروفون» ثم اسمح بهذا الموقع.',
-                    'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
-                ],
-                ios: [
-                    'من إعدادات الجهاز: الإعدادات ← Safari (أو Chrome) ← الميكروفون ← السماح.',
-                    'أو اضغط «aA» في شريط العنوان ← إعدادات الموقع ← الميكروفون ← السماح (Safari).',
-                    'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
-                ],
-                android: [
-                    'اضغط قائمة المتصفح (⋮) ← الإعدادات ← إعدادات المواقع.',
-                    'اختر «الميكروفون» ثم اسمح بهذا الموقع.',
+                    'من شريط القوائم: Safari ← «الإعدادات» (أو ⌘,).',
+                    'انتقل إلى «المواقع» ← «الميكروفون».',
+                    'ابحث عن هذا الموقع واختر «السماح».',
                     'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
                 ],
                 other: [
-                    'افتح إعدادات الأذونات أو المواقع في متصفحك.',
+                    'افتح إعدادات الأذونات أو المواقع من متصفحك (غالبًا أيقونة القفل بجوار العنوان).',
                     'اسمح للميكروفون لهذا الموقع.',
                     'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
                 ],
             };
 
-            return steps[this.browser] ?? steps.other;
+            const detected = steps[this.browser] ?? steps.other;
+
+            if (this.inApp) {
+                return [
+                    'اضغط «فتح في متصفح خارجي»، أو افتح قائمة التطبيق (⋮) واختر «فتح في المتصفح».',
+                    ...detected,
+                ];
+            }
+
+            if (this.embedded) {
+                return ['اضغط «فتح في متصفح خارجي» لفتح الموقع في نافذة مستقلة.', ...detected];
+            }
+
+            return detected;
         },
 
         async watchPermission() {
             const status = await this.permissionStatus();
 
-            if (status === null) {
+            if (status !== null) {
+                this.applyPermissionState(status.state);
+                status.onchange = () => this.applyPermissionState(status.state);
+            }
+
+            // Chrome applies permission changes made in another tab once the
+            // page becomes visible again, and Safari exposes no microphone
+            // descriptor at all, so returning to the page re-checks the state.
+            this.onVisibilityChange = () => {
+                if (document.visibilityState === 'visible') {
+                    this.refreshPermissionState();
+                }
+            };
+
+            document.addEventListener('visibilitychange', this.onVisibilityChange);
+        },
+
+        async refreshPermissionState() {
+            const state = await this.queryPermissionState();
+
+            if (state !== 'unknown') {
+                this.applyPermissionState(state);
+
                 return;
             }
 
-            this.applyPermissionState(status.state);
-
-            status.onchange = () => this.applyPermissionState(status.state);
+            // Safari cannot report the microphone state. Once the student has
+            // been sent to the settings, retry the guarded request so a newly
+            // granted permission starts the recording without a reload.
+            if (this.resumeWhenGranted && this.state === 'idle') {
+                this.start();
+            }
         },
 
         applyPermissionState(state) {
             this.permission = state;
 
             if (state === 'granted') {
-                this.permissionHelp = false;
+                const resume = this.resumeWhenGranted;
+
+                this.resumeWhenGranted = false;
+                this.permissionModal = false;
                 this.error = null;
+
+                if (resume && this.state === 'idle') {
+                    this.start();
+                }
+
+                return;
             }
 
-            if (state === 'denied' && this.state === 'idle' && window.isSecureContext) {
-                this.permissionHelp = true;
+            if (state === 'denied' && this.permissionModal) {
+                this.resumeWhenGranted = true;
             }
+        },
+
+        openPermissionModal() {
+            this.permissionModal = true;
+            this.resumeWhenGranted = true;
+
+            // Move focus into the dialog so keyboard users are not left behind it.
+            this.$nextTick?.(() => document.getElementById('permission-modal-retry')?.focus());
+        },
+
+        closePermissionModal() {
+            this.permissionModal = false;
+            this.resumeWhenGranted = false;
         },
 
         async queryPermissionState() {
@@ -748,10 +866,14 @@ const registerComponents = () => {
                 return;
             }
 
+            this.closePermissionModal();
             this.start();
         },
 
-        openInNewWindow() {
+        openExternalBrowser() {
+            // A new tab escapes an iframe and keeps the current page usable.
+            // In-app browsers may still keep the link inside their webview,
+            // which is why the modal lists the application's own steps too.
             window.open(window.location.href, '_blank', 'noopener');
         },
 
@@ -772,14 +894,27 @@ const registerComponents = () => {
             return 'other';
         },
 
+        detectInApp() {
+            const agent = navigator.userAgent;
+
+            if (/Instagram/i.test(agent)) return 'instagram';
+            if (/FBAN|FBAV|FB_IAB|FBIOS/i.test(agent)) return 'facebook';
+            if (/Telegram/i.test(agent)) return 'telegram';
+            if (/WhatsApp/i.test(agent)) return 'whatsapp';
+            if (/musical_ly|BytedanceWebview|TikTok/i.test(agent)) return 'tiktok';
+            if (/\bLine\//i.test(agent)) return 'line';
+
+            return null;
+        },
+
         permissionMessage(error) {
             switch (error?.name) {
                 case 'NotAllowedError':
                 case 'PermissionDeniedError':
                 case 'SecurityError':
                     return this.permission === 'denied'
-                        ? 'تم حظر إذن الميكروفون لهذا الموقع. اتّبع خطوات الأذونات التالية ثم أعد المحاولة.'
-                        : 'لم يُمنح إذن الميكروفون. اسمح بالوصول من رسالة المتصفح أو إعدادات الموقع ثم أعد المحاولة.';
+                        ? 'تم حظر إذن الميكروفون لهذا الموقع. اتّبع خطوات الأذونات في النافذة المنبثقة ثم أعد المحاولة.'
+                        : 'لم يُمنح إذن الميكروفون. اسمح بالوصول من رسالة المتصفح أو من إعدادات الموقع ثم أعد المحاولة.';
                 case 'NotFoundError':
                 case 'DevicesNotFoundError':
                     return 'لم يتم العثور على ميكروفون متصل بهذا الجهاز.';
@@ -796,6 +931,13 @@ const registerComponents = () => {
 
         destroy() {
             this.stopTimer();
+
+            if (this.onVisibilityChange) {
+                document.removeEventListener('visibilitychange', this.onVisibilityChange);
+                this.onVisibilityChange = null;
+            }
+
+            document.body.classList.remove('overflow-hidden');
 
             if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
                 try {
