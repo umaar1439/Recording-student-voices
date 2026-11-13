@@ -184,6 +184,8 @@ const registerComponents = () => {
         embedded: false,
         inApp: null,
         browser: 'other',
+        androidChrome: false,
+        settingsCopied: false,
         resumeWhenGranted: false,
         onVisibilityChange: null,
 
@@ -192,6 +194,7 @@ const registerComponents = () => {
             this.embedded = window.self !== window.top;
             this.inApp = this.detectInApp();
             this.browser = this.detectBrowser();
+            this.androidChrome = this.detectAndroidChrome();
 
             // Keep the page behind the permissions modal from scrolling.
             this.$watch('permissionModal', (open) => {
@@ -334,30 +337,73 @@ const registerComponents = () => {
             this.startTimer();
         },
 
+        /**
+         * Chrome on Android answers a hardware-specific request with an
+         * immediate rejection — sometimes without ever showing the prompt —
+         * so the plainest possible request is tried first and the processing
+         * hints are only requested on top of an already granted stream. The
+         * recorded audio is resampled to 16 kHz mono WAV afterwards anyway, so
+         * nothing is lost by starting with `{ audio: true }`.
+         */
         async openMicrophone() {
-            try {
-                return await navigator.mediaDevices.getUserMedia({
+            const attempts = [
+                { audio: true, video: false },
+                { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
+                {
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
                         channelCount: { ideal: 1 },
-                        // The browser may ignore these hints; the recording is
-                        // resampled to exactly 16 kHz mono WAV after capture.
-                        sampleRate: { ideal: 16000 },
-                        sampleSize: { ideal: 16 },
                     },
-                });
-            } catch (error) {
-                if (!this.isConstraintError(error)) {
-                    throw error;
-                }
+                },
+            ];
 
-                // Some browsers reject the processing hints outright. The WAV
-                // conversion already enforces 16 kHz mono, so retry with the
-                // most permissive audio request instead of failing the student.
-                return navigator.mediaDevices.getUserMedia({ audio: true });
+            let lastError = null;
+
+            for (const constraints of attempts) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+                    this.applyAudioHints(stream);
+
+                    return stream;
+                } catch (error) {
+                    lastError = error;
+
+                    // Retrying after a real refusal would only trigger another
+                    // prompt (or another silent "denied") on Android, so the
+                    // remaining attempts are only for constraint problems.
+                    if (!this.isConstraintError(error)) {
+                        throw error;
+                    }
+                }
             }
+
+            throw lastError;
+        },
+
+        /**
+         * Ideal values never reject the request: the device ignores whatever it
+         * cannot do, which keeps Android Chrome from failing the capture.
+         */
+        applyAudioHints(stream) {
+            const [track] = stream.getAudioTracks?.() ?? [];
+
+            if (!track?.applyConstraints) {
+                return;
+            }
+
+            track
+                .applyConstraints({
+                    echoCancellation: { ideal: true },
+                    noiseSuppression: { ideal: true },
+                    autoGainControl: { ideal: true },
+                    channelCount: { ideal: 1 },
+                })
+                .catch(() => {
+                    // Processing is a bonus; the raw track is still recorded.
+                });
         },
 
         stop() {
@@ -700,6 +746,10 @@ const registerComponents = () => {
             }[this.browser] ?? 'متصفحك';
         },
 
+        get siteLink() {
+            return window.location.href;
+        },
+
         get permissionSteps() {
             const steps = {
                 ios: [
@@ -709,10 +759,10 @@ const registerComponents = () => {
                     'ارجع إلى هذه الصفحة واضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
                 ],
                 android: [
-                    'اضغط قائمة المتصفح (⋮) أعلى الشاشة.',
-                    'اختر «الإعدادات» ← «إعدادات المواقع» ← «الميكروفون».',
-                    'ابحث عن عنوان هذا الموقع واختر له «السماح».',
-                    'ارجع إلى الصفحة واضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
+                    'اضغط أيقونة القفل (أو أيقونة الضبط) بجوار عنوان الموقع في كروم.',
+                    'اختر «الأذونات» ← «الميكروفون» ← «السماح»، ثم أغلق النافذة.',
+                    'أو من قائمة كروم (⋮) ← «الإعدادات» ← «إعدادات المواقع» ← «الميكروفون»، وابحث عن هذا الموقع.',
+                    'ارجع إلى هذه الصفحة واضغط «إعادة المحاولة» — سيبدأ التسجيل تلقائيًا.',
                 ],
                 chrome: [
                     'اضغط أيقونة القفل (أو «ضبط الأذونات») على يسار عنوان الموقع.',
@@ -823,6 +873,7 @@ const registerComponents = () => {
         openPermissionModal() {
             this.permissionModal = true;
             this.resumeWhenGranted = true;
+            this.settingsCopied = false;
 
             // Move focus into the dialog so keyboard users are not left behind it.
             this.$nextTick?.(() => document.getElementById('permission-modal-retry')?.focus());
@@ -871,13 +922,111 @@ const registerComponents = () => {
         },
 
         openExternalBrowser() {
+            const link = window.location.href;
+
+            if (/Android/i.test(navigator.userAgent)) {
+                // An intent:// link is the only way to leave an Android WebView
+                // and land in the standalone Chrome app; the fallback URL keeps
+                // the current page usable when Chrome is not installed.
+                const scheme = link.startsWith('https:') ? 'https' : 'http';
+                const fallback = encodeURIComponent(link);
+
+                window.location.href = `intent://${link.replace(/^https?:\/\//, '')}#Intent;scheme=${scheme};package=com.android.chrome;S.browser_fallback_url=${fallback};end`;
+
+                return;
+            }
+
             // A new tab escapes an iframe and keeps the current page usable.
             // In-app browsers may still keep the link inside their webview,
             // which is why the modal lists the application's own steps too.
-            window.open(window.location.href, '_blank', 'noopener');
+            window.open(link, '_blank', 'noopener');
         },
 
-        reloadPage() {
+        /**
+         * Chrome on Android only exposes its per-site permission UI through
+         * browser chrome, and it refuses page-initiated `chrome://` navigation.
+         * Copying the address is therefore the reliable way to get the student
+         * to the right entry in «إعدادات المواقع» without leaving the page.
+         */
+        async openChromeSettings() {
+            const link = window.location.href;
+
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(link);
+                    this.settingsCopied = true;
+
+                    return;
+                }
+            } catch {
+                // Fall through to the textarea trick below.
+            }
+
+            try {
+                this.copyWithTextarea(link);
+                this.settingsCopied = true;
+            } catch {
+                // Clipboard access is unavailable in some WebViews; the link is
+                // rendered inside the modal so it can still be copied by hand.
+                this.settingsCopied = false;
+            }
+        },
+
+        copyWithTextarea(text) {
+            const field = document.createElement('textarea');
+            field.value = text;
+            field.setAttribute('readonly', '');
+            field.style.position = 'fixed';
+            field.style.top = '-1000px';
+            field.style.opacity = '0';
+            document.body.appendChild(field);
+            field.select();
+
+            try {
+                if (!document.execCommand('copy')) {
+                    throw new Error('copy-failed');
+                }
+            } finally {
+                field.remove();
+            }
+        },
+
+        /**
+         * Some Android builds keep the blocked capture session attached to the
+         * tab until every track is stopped, so the device is released before the
+         * page is reloaded with a fresh permission state.
+         */
+        forceResetMicrophone() {
+            this.stopTimer();
+
+            if (this.mediaRecorder) {
+                // Detach first: the recorder fires `onstop` asynchronously and
+                // `finalize()` must not run while the page is reloading.
+                this.mediaRecorder.onstop = null;
+                this.mediaRecorder.onerror = null;
+                this.mediaRecorder.ondataavailable = null;
+
+                if (this.mediaRecorder.state !== 'inactive') {
+                    try {
+                        this.mediaRecorder.stop();
+                    } catch {
+                        // The stream is released below regardless.
+                    }
+                }
+            }
+
+            this.state = 'idle';
+            this.mediaRecorder = null;
+            this.chunks = [];
+            this.blob = null;
+            this.permissionModal = false;
+            this.cleanupStream();
+
+            if (this.previewUrl) {
+                URL.revokeObjectURL(this.previewUrl);
+                this.previewUrl = null;
+            }
+
             window.location.reload();
         },
 
@@ -892,6 +1041,18 @@ const registerComponents = () => {
             if (/Safari\//i.test(agent)) return 'safari';
 
             return 'other';
+        },
+
+        /**
+         * Only Google Chrome proper gets the Chrome-specific permission steps;
+         * Samsung Internet, Edge and Opera on Android use different menus.
+         */
+        detectAndroidChrome() {
+            const agent = navigator.userAgent;
+
+            return /Android/i.test(agent)
+                && /Chrome\/\d+/i.test(agent)
+                && !/SamsungBrowser|EdgA|OPR\/|Firefox|FxiOS/i.test(agent);
         },
 
         detectInApp() {

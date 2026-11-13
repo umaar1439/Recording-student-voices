@@ -299,6 +299,43 @@
                                         <p x-text="containerMessage"></p>
                                     </div>
 
+                                    {{-- كروم أندرويد يحظر الطلب بصمت بعد أول رفض، فلا تظهر رسالة الإذن أبدًا. --}}
+                                    <div x-show="androidChrome && !inApp && !embedded" x-cloak
+                                         class="rounded-2xl border border-gold-400/50 bg-sand-50 p-3.5">
+                                        <div class="flex items-start gap-2.5">
+                                            <span class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold-400/15 text-gold-600 ring-1 ring-gold-400/40">
+                                                <span class="absolute inset-0 animate-ping rounded-xl bg-gold-400/25"></span>
+                                                <x-icon name="shield" class="relative h-4 w-4" />
+                                            </span>
+
+                                            <div class="min-w-0">
+                                                <p class="text-[11px] font-black text-slate-900">إصلاح إذن الميكروفون في كروم أندرويد</p>
+                                                <p class="mt-0.5 text-[11px] font-semibold leading-5 text-slate-600">
+                                                    بعد أول رفض يتجاهل كروم طلب الإذن بصمت ولا تظهر أي رسالة. انسخ رابط الموقع، ثم افتح إعدادات كروم وألصقه في بحث «إعدادات المواقع».
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div class="mt-3 space-y-2">
+                                            <button type="button" @click="openChromeSettings()" class="btn btn-primary btn-sm w-full">
+                                                <x-icon name="shield" class="h-4 w-4" />
+                                                <span x-text="settingsCopied ? 'تم نسخ رابط الموقع ✓' : 'نسخ رابط الموقع لفتح إعدادات كروم'"></span>
+                                            </button>
+
+                                            <div x-show="settingsCopied" x-transition.opacity.duration.150ms
+                                                 class="flex items-start gap-2 rounded-xl border border-mihrab-200 bg-mihrab-50 px-3 py-2.5 text-[11px] font-semibold leading-5 text-mihrab-900">
+                                                <x-icon name="check-circle" class="mt-0.5 h-4 w-4 shrink-0" />
+                                                <span>كروم (⋮) ← «الإعدادات» ← «إعدادات المواقع» ← «الميكروفون» ← الصق الرابط في البحث ← «السماح»، ثم اضغط «إعادة المحاولة».</span>
+                                            </div>
+
+                                            <label class="block">
+                                                <span class="text-[10px] font-bold text-slate-500">أو انسخ الرابط يدويًا</span>
+                                                <input type="text" readonly :value="siteLink" @focus="$el.select()" dir="ltr"
+                                                       class="mt-1 w-full rounded-xl border border-sand-300 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600" />
+                                            </label>
+                                        </div>
+                                    </div>
+
                                     <ol class="space-y-2.5">
                                         <template x-for="(step, index) in permissionSteps" :key="index">
                                             <li class="flex items-start gap-3">
@@ -327,9 +364,9 @@
                                         فتح في متصفح خارجي
                                     </button>
 
-                                    <button type="button" @click="reloadPage()" class="btn btn-ghost btn-sm">
+                                    <button type="button" @click="forceResetMicrophone()" class="btn btn-ghost btn-sm">
                                         <x-icon name="refresh" class="h-4 w-4" />
-                                        تحديث الصفحة
+                                        <span x-text="androidChrome ? 'إعادة ضبط الميكروفون وتحديث الصفحة' : 'تحديث الصفحة'"></span>
                                     </button>
                                 </div>
                             </div>
