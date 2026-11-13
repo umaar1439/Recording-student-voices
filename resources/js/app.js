@@ -179,9 +179,19 @@ const registerComponents = () => {
         timerId: null,
         mediaRecorder: null,
         stream: null,
+        permission: 'unknown',
+        permissionHelp: false,
+        embedded: false,
+        browser: 'other',
 
-        init() {
+        async init() {
             this.supported = typeof window.MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+            this.embedded = window.self !== window.top;
+            this.browser = this.detectBrowser();
+
+            if (this.supported) {
+                await this.watchPermission();
+            }
         },
 
         get isRecording() {
@@ -249,20 +259,11 @@ const registerComponents = () => {
             this.state = 'requesting';
 
             try {
-                this.stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        channelCount: { ideal: 1 },
-                        // The browser may ignore these hints; the recording is
-                        // resampled to exactly 16 kHz mono WAV after capture.
-                        sampleRate: { ideal: 16000 },
-                        sampleSize: { ideal: 16 },
-                    },
-                });
+                this.stream = await this.openMicrophone();
             } catch (error) {
                 this.state = 'idle';
+                this.permission = await this.queryPermissionState();
+                this.permissionHelp = this.isPermissionError(error);
                 this.error = this.permissionMessage(error);
 
                 return;
@@ -318,6 +319,32 @@ const registerComponents = () => {
             this.mediaRecorder.start(250);
             this.state = 'recording';
             this.startTimer();
+        },
+
+        async openMicrophone() {
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: { ideal: 1 },
+                        // The browser may ignore these hints; the recording is
+                        // resampled to exactly 16 kHz mono WAV after capture.
+                        sampleRate: { ideal: 16000 },
+                        sampleSize: { ideal: 16 },
+                    },
+                });
+            } catch (error) {
+                if (!this.isConstraintError(error)) {
+                    throw error;
+                }
+
+                // Some browsers reject the processing hints outright. The WAV
+                // conversion already enforces 16 kHz mono, so retry with the
+                // most permissive audio request instead of failing the student.
+                return navigator.mediaDevices.getUserMedia({ audio: true });
+            }
         },
 
         stop() {
@@ -599,12 +626,160 @@ const registerComponents = () => {
             }
         },
 
+        get permissionTitle() {
+            if (this.embedded) {
+                return 'الميكروفون ممنوع داخل الإطار المضمّن';
+            }
+
+            return this.permission === 'denied'
+                ? 'الميكروفون محظور في هذا المتصفح'
+                : 'يجب السماح بالوصول إلى الميكروفون';
+        },
+
+        get permissionIntro() {
+            if (this.embedded) {
+                return 'الموقع مفتوح داخل إطار مضمّن، والمتصفح يمنع الوصول إلى الميكروفون من الإطارات. افتح الموقع في نافذة مستقلة ثم أعد المحاولة.';
+            }
+
+            if (this.permission === 'denied') {
+                return 'حظرتَ إذن الميكروفون سابقًا، ولا يستطيع الموقع إعادة فتح رسالة الإذن بنفسه. اسمح بالوصول من إعدادات المتصفح كما في الخطوات التالية ثم اضغط «إعادة المحاولة».';
+            }
+
+            return 'اسمح بالوصول إلى الميكروفون عندما يطلب المتصفح ذلك، أو من إعدادات الموقع، ثم اضغط «إعادة المحاولة».';
+        },
+
+        get permissionSteps() {
+            const steps = {
+                chrome: [
+                    'اضغط أيقونة القفل (أو «ضبط الأذونات») بجوار عنوان الموقع.',
+                    'اختر «إعدادات الموقع» ثم «الميكروفون».',
+                    'غيّر الإذن إلى «السماح» ثم اضغط «إعادة المحاولة».',
+                ],
+                edge: [
+                    'اضغط أيقونة القفل بجوار عنوان الموقع.',
+                    'اختر «الأذونات الخاصة بهذا الموقع» ثم «الميكروفون».',
+                    'غيّر الإذن إلى «السماح» ثم اضغط «إعادة المحاولة».',
+                ],
+                firefox: [
+                    'اضغط أيقونة القفل بجوار عنوان الموقع.',
+                    'اختر «مسح الإذن» أو «إعدادات الأذونات» لميكروفون هذا الموقع.',
+                    'اسمح بالميكروفون ثم اضغط «إعادة المحاولة».',
+                ],
+                safari: [
+                    'من شريط القوائم: Safari ← الإعدادات ← المواقع.',
+                    'اختر «الميكروفون» ثم اسمح بهذا الموقع.',
+                    'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
+                ],
+                ios: [
+                    'من إعدادات الجهاز: الإعدادات ← Safari (أو Chrome) ← الميكروفون ← السماح.',
+                    'أو اضغط «aA» في شريط العنوان ← إعدادات الموقع ← الميكروفون ← السماح (Safari).',
+                    'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
+                ],
+                android: [
+                    'اضغط قائمة المتصفح (⋮) ← الإعدادات ← إعدادات المواقع.',
+                    'اختر «الميكروفون» ثم اسمح بهذا الموقع.',
+                    'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
+                ],
+                other: [
+                    'افتح إعدادات الأذونات أو المواقع في متصفحك.',
+                    'اسمح للميكروفون لهذا الموقع.',
+                    'أعد تحميل الصفحة ثم اضغط «إعادة المحاولة».',
+                ],
+            };
+
+            return steps[this.browser] ?? steps.other;
+        },
+
+        async watchPermission() {
+            const status = await this.permissionStatus();
+
+            if (status === null) {
+                return;
+            }
+
+            this.applyPermissionState(status.state);
+
+            status.onchange = () => this.applyPermissionState(status.state);
+        },
+
+        applyPermissionState(state) {
+            this.permission = state;
+
+            if (state === 'granted') {
+                this.permissionHelp = false;
+                this.error = null;
+            }
+
+            if (state === 'denied' && this.state === 'idle' && window.isSecureContext) {
+                this.permissionHelp = true;
+            }
+        },
+
+        async queryPermissionState() {
+            const status = await this.permissionStatus();
+
+            return status?.state ?? 'unknown';
+        },
+
+        async permissionStatus() {
+            try {
+                if (!navigator.permissions?.query) {
+                    return null;
+                }
+
+                return await navigator.permissions.query({ name: 'microphone' });
+            } catch {
+                // Safari and some embedded browsers do not expose the
+                // microphone descriptor; the guarded request still works.
+                return null;
+            }
+        },
+
+        isPermissionError(error) {
+            return ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(error?.name);
+        },
+
+        isConstraintError(error) {
+            return ['OverconstrainedError', 'ConstraintNotSatisfiedError', 'TypeError'].includes(error?.name);
+        },
+
+        retryPermission() {
+            if (this.state !== 'idle') {
+                return;
+            }
+
+            this.start();
+        },
+
+        openInNewWindow() {
+            window.open(window.location.href, '_blank', 'noopener');
+        },
+
+        reloadPage() {
+            window.location.reload();
+        },
+
+        detectBrowser() {
+            const agent = navigator.userAgent;
+
+            if (/iPhone|iPad|iPod/i.test(agent)) return 'ios';
+            if (/Android/i.test(agent) && /Chrome|CriOS/i.test(agent)) return 'android';
+            if (/Edg\//i.test(agent)) return 'edge';
+            if (/Firefox\/|FxiOS\//i.test(agent)) return 'firefox';
+            if (/Chrome\/|CriOS\//i.test(agent)) return 'chrome';
+            if (/Safari\//i.test(agent)) return 'safari';
+
+            return 'other';
+        },
+
         permissionMessage(error) {
             switch (error?.name) {
                 case 'NotAllowedError':
                 case 'PermissionDeniedError':
                 case 'SecurityError':
-                    return 'تم رفض إذن الميكروفون. اسمح بالوصول من إعدادات المتصفح ثم أعد المحاولة.';
+                    return this.permission === 'denied'
+                        ? 'تم حظر إذن الميكروفون لهذا الموقع. اتّبع خطوات الأذونات التالية ثم أعد المحاولة.'
+                        : 'لم يُمنح إذن الميكروفون. اسمح بالوصول من رسالة المتصفح أو إعدادات الموقع ثم أعد المحاولة.';
                 case 'NotFoundError':
                 case 'DevicesNotFoundError':
                     return 'لم يتم العثور على ميكروفون متصل بهذا الجهاز.';

@@ -152,6 +152,52 @@
                     </div>
 
                     <div x-show="supported" x-cloak class="flex flex-col items-center gap-4">
+                        <div x-show="permissionHelp" x-cloak
+                             class="w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 shadow-sm">
+                            <div class="flex items-start gap-2">
+                                <x-icon name="alert" class="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                                <div class="min-w-0 space-y-1.5">
+                                    <p class="text-sm font-black text-amber-900" x-text="permissionTitle"></p>
+                                    <p class="text-[11px] font-semibold leading-6 text-amber-900/80" x-text="permissionIntro"></p>
+                                </div>
+                            </div>
+
+                            <template x-if="!embedded">
+                                <ul class="mt-3 space-y-1.5 text-[11px] font-semibold leading-6 text-amber-900">
+                                    <template x-for="(step, index) in permissionSteps" :key="index">
+                                        <li class="flex gap-2">
+                                            <span class="shrink-0 text-gold-600">◆</span>
+                                            <span x-text="step"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+
+                            <p class="mt-3 text-[11px] font-semibold leading-6 text-amber-900/70">
+                                إن كنت تفتح الموقع من داخل تطبيق (فيسبوك أو إنستغرام أو تيليجرام) فافتحه في
+                                Chrome أو Safari، لأن هذه التطبيقات غالبًا تمنع الميكروفون.
+                            </p>
+
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <button type="button" @click="retryPermission()" :disabled="isBusy"
+                                        class="btn btn-primary btn-sm">
+                                    <x-icon name="mic" class="h-4 w-4" />
+                                    إعادة المحاولة ومنح الإذن
+                                </button>
+
+                                <button type="button" x-show="embedded" @click="openInNewWindow()"
+                                        class="btn btn-secondary btn-sm">
+                                    <x-icon name="arrow-right" class="h-4 w-4" />
+                                    فتح في نافذة جديدة
+                                </button>
+
+                                <button type="button" @click="reloadPage()" class="btn btn-ghost btn-sm">
+                                    <x-icon name="refresh" class="h-4 w-4" />
+                                    تحديث الصفحة
+                                </button>
+                            </div>
+                        </div>
+
                         <div x-show="state === 'idle'" class="flex flex-col items-center gap-3">
                             <button type="button" @click="toggle()"
                                     class="flex h-20 w-20 items-center justify-center rounded-full bg-mihrab-700 text-white shadow-xl shadow-mihrab-900/25 transition hover:scale-105 hover:bg-mihrab-800"
